@@ -21,23 +21,56 @@ def _get_headers() -> dict[str, str]:
     return {"User-Agent": random.choice(USER_AGENTS)}
 
 
-def polite_delay(min_sec: float = 1.5, max_sec: float = 4.0) -> None:
+def polite_delay(min_sec: float = 0.5, max_sec: float = 1.5) -> None:
     """Random delay between requests to avoid rate-limiting."""
     time.sleep(random.uniform(min_sec, max_sec))
 
 
 def fetch_with_backoff(url: str, retries: int = 3, timeout: int = 10) -> requests.Response | None:
-    """Fetch a URL with exponential back-off on failure."""
+    """Fetch a URL with exponential back-off on transient failures.
+
+    Returns None immediately for 404 (page not found) and 403 (forbidden)
+    without retrying. Only retries on 5xx server errors, timeouts, and
+    connection errors.
+    """
     for attempt in range(retries):
         try:
             resp = requests.get(url, headers=_get_headers(), timeout=timeout)
+
+            # Don't retry client errors — the page simply doesn't exist
+            if resp.status_code == 404:
+                logger.debug("404 Not Found (skipping): %s", url)
+                return None
+            if resp.status_code == 403:
+                logger.debug("403 Forbidden (skipping): %s", url)
+                return None
+            if resp.status_code == 429:
+                wait = 2 ** (attempt + 1)
+                logger.warning("Rate-limited on %s, backing off %ds", url, wait)
+                time.sleep(wait)
+                continue
+
             resp.raise_for_status()
             return resp
-        except requests.RequestException as exc:
+
+        except requests.exceptions.Timeout:
             wait = 2 ** attempt
-            logger.warning("Attempt %d for %s failed (%s), retrying in %ds", attempt + 1, url, exc, wait)
+            logger.warning("Timeout on %s (attempt %d/%d), retrying in %ds", url, attempt + 1, retries, wait)
             time.sleep(wait)
-    logger.error("All %d attempts failed for %s", retries, url)
+        except requests.exceptions.ConnectionError:
+            wait = 2 ** attempt
+            logger.warning("Connection error on %s (attempt %d/%d), retrying in %ds", url, attempt + 1, retries, wait)
+            time.sleep(wait)
+        except requests.exceptions.HTTPError as exc:
+            if resp.status_code >= 500:
+                wait = 2 ** attempt
+                logger.warning("Server error %d on %s (attempt %d/%d), retrying in %ds", resp.status_code, url, attempt + 1, retries, wait)
+                time.sleep(wait)
+            else:
+                logger.debug("HTTP %d for %s (skipping): %s", resp.status_code, url, exc)
+                return None
+
+    logger.warning("All %d attempts failed for %s", retries, url)
     return None
 
 

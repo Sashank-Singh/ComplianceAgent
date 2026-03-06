@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from cache.store import get_cached_result
-from queue.worker import check_domain, enqueue_domain
+from queue_worker.worker import check_domain, enqueue_domain
 
 app = FastAPI(
     title="Compliance Checking Agent",
