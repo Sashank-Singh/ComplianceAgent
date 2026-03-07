@@ -1,9 +1,13 @@
 """FastAPI REST endpoints for the Compliance Checking Agent."""
 
+import json
 import os
+import queue
+import threading
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from cache.store import get_cached_result
@@ -96,3 +100,55 @@ def get_result(domain: str):
     if result is None:
         raise HTTPException(status_code=404, detail=f"No cached result for {domain}")
     return CheckResponse(**result)
+
+
+@app.get("/check/stream")
+def check_stream(
+    domain: str = Query(..., description="Domain to check"),
+    max_depth: int = Query(default=2, ge=1, le=5),
+    use_spa: bool = Query(default=False),
+):
+    """SSE endpoint that streams real-time progress events during a compliance check.
+
+    Events:
+      - ``seeds``    — seed URLs generated
+      - ``crawl``    — a page is being fetched or was fetched
+      - ``classify`` — classification started
+      - ``result``   — final result payload
+      - ``error``    — pipeline error
+    """
+    event_queue: queue.Queue[dict | None] = queue.Queue()
+
+    def on_progress(event_type: str, data: dict) -> None:
+        event_queue.put({"event": event_type, "data": data})
+
+    def run_pipeline() -> None:
+        try:
+            result = check_domain(
+                domain, max_depth=max_depth, use_spa=use_spa,
+                on_progress=on_progress,
+            )
+            event_queue.put({"event": "result", "data": result})
+        except Exception as exc:
+            event_queue.put({"event": "error", "data": {"message": str(exc)}})
+        finally:
+            event_queue.put(None)  # sentinel
+
+    threading.Thread(target=run_pipeline, daemon=True).start()
+
+    def event_generator():
+        while True:
+            msg = event_queue.get()
+            if msg is None:
+                break
+            yield f"data: {json.dumps(msg)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

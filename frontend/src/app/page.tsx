@@ -6,6 +6,7 @@ import { Shield, AlertCircle, RotateCcw } from "lucide-react";
 import { healthCheck } from "@/lib/api";
 import { useComplianceCheck } from "@/hooks/useComplianceCheck";
 import { useHistory } from "@/hooks/useHistory";
+import { HistoryEntry } from "@/lib/types";
 import DomainInput from "@/components/DomainInput";
 import StatusTimeline from "@/components/StatusTimeline";
 import ResultsPanel from "@/components/ResultsPanel";
@@ -14,7 +15,7 @@ import HistoryList from "@/components/HistoryList";
 export default function Home() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const [selectedDomain, setSelectedDomain] = useState("");
-  const { stage, stageIndex, result, error, isLoading, runCheck, reset } =
+  const { stage, stageIndex, result, error, isLoading, crawlUrls, runCheck, showResult, reset } =
     useComplianceCheck();
   const { history, addEntry, clearHistory } = useHistory();
 
@@ -36,17 +37,31 @@ export default function Home() {
     [runCheck]
   );
 
-  const handleHistorySelect = useCallback(
+  const handleDeepScan = useCallback(
     (domain: string) => {
       setSelectedDomain(domain);
-      reset();
-      setTimeout(() => runCheck(domain), 100);
+      runCheck(domain, 2);
     },
-    [runCheck, reset]
+    [runCheck]
+  );
+
+  const handleHistorySelect = useCallback(
+    (entry: HistoryEntry) => {
+      setSelectedDomain(entry.domain);
+      showResult({
+        domain: entry.domain,
+        compliant: entry.compliant,
+        standards: entry.standards,
+        evidence: entry.evidence,
+        pages_crawled: entry.pages_crawled,
+        source_urls: entry.source_urls,
+      });
+    },
+    [showResult]
   );
 
   const showTimeline = stage !== "idle" && stage !== "complete" && stage !== "error";
-  const showResult = stage === "complete" && result;
+  const showResultPanel = stage === "complete" && result;
   const showError = stage === "error" && error;
 
   return (
@@ -80,8 +95,10 @@ export default function Home() {
 
       <div className="flex-1 flex flex-col lg:flex-row">
         {/* Main content */}
-        <main className="flex-1 min-w-0 px-6 py-8 lg:py-12 max-w-3xl mx-auto w-full">
-          {/* Headline — only when idle */}
+        <main className={`flex-1 min-w-0 px-6 max-w-3xl mx-auto w-full ${
+          stage === "idle" && !result ? "flex flex-col items-center justify-center" : "py-8 lg:py-12"
+        }`}>
+          {/* Headline + input centered when idle */}
           <AnimatePresence mode="wait">
             {stage === "idle" && !result && (
               <motion.div
@@ -89,7 +106,7 @@ export default function Home() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="mb-10"
+                className="w-full text-center"
               >
                 <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight">
                   Compliance check
@@ -102,9 +119,10 @@ export default function Home() {
           </AnimatePresence>
 
           {/* Input */}
-          <div className={stage === "idle" && !result ? "" : "mb-8"}>
+          <div className={stage === "idle" && !result ? "w-full mt-6" : "mb-8"}>
             <DomainInput
               onSubmit={handleSubmit}
+              onDeepScan={handleDeepScan}
               isLoading={isLoading}
               initialValue={selectedDomain}
               key={selectedDomain}
@@ -121,11 +139,11 @@ export default function Home() {
                 exit={{ opacity: 0 }}
                 className="mt-8"
               >
-                <StatusTimeline currentStageIndex={stageIndex} />
+                <StatusTimeline currentStageIndex={stageIndex} crawlUrls={crawlUrls} />
               </motion.div>
             )}
 
-            {showResult && (
+            {showResultPanel && (
               <motion.div
                 key="results"
                 initial={{ opacity: 0, y: 8 }}

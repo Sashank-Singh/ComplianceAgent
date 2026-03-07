@@ -2,6 +2,7 @@
 
 import logging
 import os
+from typing import Callable, Optional
 
 from redis import Redis
 from rq import Queue
@@ -22,7 +23,12 @@ def _get_queue() -> Queue:
     return Queue(connection=conn)
 
 
-def check_domain(domain: str, max_depth: int = 2, use_spa: bool = False) -> dict:
+def check_domain(
+    domain: str,
+    max_depth: int = 2,
+    use_spa: bool = False,
+    on_progress: Optional[Callable[[str, dict], None]] = None,
+) -> dict:
     """Full compliance-check pipeline for a single domain.
 
     1. Check cache
@@ -32,6 +38,11 @@ def check_domain(domain: str, max_depth: int = 2, use_spa: bool = False) -> dict
     5. Classify each chunk
     6. Aggregate results
     7. Cache and return
+
+    Args:
+        on_progress: Optional callback ``(event_type, data)`` for streaming
+            progress. event_type is one of: ``"seeds"``, ``"crawl"``,
+            ``"classify"``, ``"result"``.
     """
     domain = normalize_domain(domain)
 
@@ -42,7 +53,20 @@ def check_domain(domain: str, max_depth: int = 2, use_spa: bool = False) -> dict
     logger.info("Starting compliance check for %s", domain)
 
     seeds = generate_seeds(domain)
-    pages = bfs_crawl(seeds, domain, max_depth=max_depth, use_spa=use_spa)
+    if on_progress:
+        on_progress("seeds", {"urls": seeds})
+
+    def crawl_progress(url: str, status: str) -> None:
+        if on_progress:
+            on_progress("crawl", {"url": url, "status": status})
+
+    pages = bfs_crawl(
+        seeds, domain, max_depth=max_depth, use_spa=use_spa,
+        on_progress=crawl_progress,
+    )
+
+    if on_progress:
+        on_progress("classify", {"status": "started", "pages": len(pages)})
 
     # Combine all page text into one document (with section headers)
     doc_parts = []

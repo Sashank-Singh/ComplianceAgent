@@ -38,6 +38,13 @@ export interface HistoryEntry {
   domain: string;
   compliant: boolean;
   standards: string[];
+  evidence: (string | Record<string, string>)[];
   pages_crawled: number;
+  source_urls: string[];
   checkedAt: string;
+}
+
+export interface CrawlUrl {
+  url: string;
+  status: "fetching" | "done" | "skip";
 }

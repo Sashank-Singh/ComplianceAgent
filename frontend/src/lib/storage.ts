@@ -19,7 +19,9 @@ export function addHistoryEntry(result: CheckResponse): HistoryEntry[] {
     domain: result.domain,
     compliant: result.compliant,
     standards: result.standards,
+    evidence: result.evidence,
     pages_crawled: result.pages_crawled,
+    source_urls: result.source_urls,
     checkedAt: new Date().toISOString(),
   };
   const filtered = entries.filter((e) => e.domain !== entry.domain);

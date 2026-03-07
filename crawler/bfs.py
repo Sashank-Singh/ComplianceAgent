@@ -3,6 +3,7 @@
 import logging
 import re
 from collections import deque
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from crawler.static_crawler import fetch_page, polite_delay
@@ -23,9 +24,17 @@ _SKIP_PATTERNS = re.compile(
 
 
 def _same_domain(url: str, domain: str) -> bool:
-    """Check whether a URL belongs to the target domain."""
+    """Check whether a URL belongs to the target domain or its subdomains.
+
+    Matches example.com, www.example.com, aws.example.com, but not
+    aboutexample.com or example.com.evil.com.
+    """
     try:
-        return domain in urlparse(url).netloc
+        netloc = urlparse(url).netloc.lower()
+        domain_lower = domain.lower()
+        if not netloc:
+            return False
+        return netloc == domain_lower or netloc.endswith("." + domain_lower)
     except Exception:
         return False
 
@@ -51,6 +60,7 @@ def bfs_crawl(
     max_depth: int = 1,
     max_pages: int = 12,
     use_spa: bool = False,
+    on_progress: Optional[Callable[[str, str], None]] = None,
 ) -> list[tuple[str, str]]:
     """Crawl starting from *seed_urls*, expanding links up to *max_depth*.
 
@@ -60,6 +70,8 @@ def bfs_crawl(
         max_depth: Maximum BFS depth.
         max_pages: Hard cap on total pages fetched.
         use_spa: If True, fall back to Playwright for pages returning no text.
+        on_progress: Optional callback ``(url, status)`` called for each URL.
+            *status* is ``"fetching"``, ``"done"``, or ``"skip"``.
 
     Returns:
         List of (url, page_text) tuples.
@@ -80,6 +92,9 @@ def bfs_crawl(
             continue
         visited.add(clean_url)
 
+        if on_progress:
+            on_progress(clean_url, "fetching")
+
         logger.info("Crawling [depth=%d]: %s", depth, clean_url)
         text, links = fetch_page(clean_url)
 
@@ -92,6 +107,11 @@ def bfs_crawl(
 
         if text.strip():
             results.append((clean_url, text))
+            if on_progress:
+                on_progress(clean_url, "done")
+        else:
+            if on_progress:
+                on_progress(clean_url, "skip")
 
         # Expand links within the same domain (with relevance filtering)
         if depth < max_depth:

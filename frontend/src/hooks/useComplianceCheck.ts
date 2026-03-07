@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { checkDomain } from "@/lib/api";
-import { CHECK_STAGES } from "@/lib/constants";
-import { CheckRequest, CheckResponse, CheckStage } from "@/lib/types";
+import { CheckResponse, CheckStage, CrawlUrl } from "@/lib/types";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function useComplianceCheck() {
   const [stage, setStage] = useState<CheckStage>("idle");
@@ -11,10 +11,20 @@ export function useComplianceCheck() {
   const [result, setResult] = useState<CheckResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [crawlUrls, setCrawlUrls] = useState<CrawlUrl[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
+  const showResult = useCallback((data: CheckResponse) => {
+    setStage("complete");
+    setStageIndex(4);
+    setResult(data);
+    setIsLoading(false);
+    setError(null);
+    setCrawlUrls([]);
+  }, []);
+
   const runCheck = useCallback(
-    async (domain: string, options?: Partial<CheckRequest>) => {
+    async (domain: string, maxDepth: number = 1) => {
       // Cancel any in-flight request
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -23,38 +33,108 @@ export function useComplianceCheck() {
       setIsLoading(true);
       setError(null);
       setResult(null);
+      setCrawlUrls([]);
       setStageIndex(0);
       setStage("generating_seeds");
 
-      // Simulate progress through pipeline stages
-      const timers: NodeJS.Timeout[] = [];
-      let elapsed = 0;
-      CHECK_STAGES.forEach((s, i) => {
-        if (i === 0) return;
-        elapsed += CHECK_STAGES[i - 1].estimatedDurationMs;
-        const timer = setTimeout(() => {
-          setStageIndex(i);
-          setStage(s.id);
-        }, elapsed);
-        timers.push(timer);
-      });
+      const params = new URLSearchParams({ domain, max_depth: String(maxDepth) });
+      const url = `${API_BASE}/check/stream?${params}`;
 
       try {
-        const data = await checkDomain(
-          { domain, ...options },
-          controller.signal
-        );
-        timers.forEach(clearTimeout);
-        setStage("complete");
-        setStageIndex(CHECK_STAGES.length);
-        setResult(data);
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE lines: each event is "data: {...}\n\n"
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data: ")) continue;
+            const jsonStr = trimmed.slice(6);
+            try {
+              const msg = JSON.parse(jsonStr);
+              handleEvent(msg);
+            } catch {
+              // skip malformed JSON
+            }
+          }
+        }
+
+        // Handle any remaining data in buffer
+        if (buffer.trim().startsWith("data: ")) {
+          try {
+            const msg = JSON.parse(buffer.trim().slice(6));
+            handleEvent(msg);
+          } catch {
+            // skip
+          }
+        }
       } catch (err) {
-        timers.forEach(clearTimeout);
         if (err instanceof DOMException && err.name === "AbortError") return;
         setStage("error");
         setError(err instanceof Error ? err.message : "Check failed");
       } finally {
         setIsLoading(false);
+      }
+
+      function handleEvent(msg: { event: string; data: Record<string, unknown> }) {
+        switch (msg.event) {
+          case "seeds":
+            setStageIndex(1);
+            setStage("crawling");
+            break;
+
+          case "crawl": {
+            const crawlData = msg.data as { url: string; status: string };
+            setCrawlUrls((prev) => {
+              const exists = prev.findIndex((c) => c.url === crawlData.url);
+              const entry: CrawlUrl = {
+                url: crawlData.url,
+                status: crawlData.status as CrawlUrl["status"],
+              };
+              if (exists >= 0) {
+                const next = [...prev];
+                next[exists] = entry;
+                return next;
+              }
+              return [...prev, entry];
+            });
+            break;
+          }
+
+          case "classify":
+            setStageIndex(2);
+            setStage("classifying");
+            break;
+
+          case "result": {
+            const data = msg.data as unknown as CheckResponse;
+            setStageIndex(4);
+            setStage("complete");
+            setResult(data);
+            break;
+          }
+
+          case "error":
+            setStage("error");
+            setError((msg.data as { message: string }).message || "Check failed");
+            break;
+        }
       }
     },
     []
@@ -67,7 +147,8 @@ export function useComplianceCheck() {
     setResult(null);
     setError(null);
     setIsLoading(false);
+    setCrawlUrls([]);
   }, []);
 
-  return { stage, stageIndex, result, error, isLoading, runCheck, reset };
+  return { stage, stageIndex, result, error, isLoading, crawlUrls, runCheck, showResult, reset };
 }

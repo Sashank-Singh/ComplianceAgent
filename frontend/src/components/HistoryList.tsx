@@ -5,7 +5,7 @@ import { HistoryEntry } from "@/lib/types";
 
 interface HistoryListProps {
   entries: HistoryEntry[];
-  onSelect: (domain: string) => void;
+  onSelect: (entry: HistoryEntry) => void;
   onClear: () => void;
 }
 
@@ -29,7 +29,7 @@ export default function HistoryList({ entries, onSelect, onClear }: HistoryListP
       {entries.map((entry) => (
         <button
           key={entry.domain + entry.checkedAt}
-          onClick={() => onSelect(entry.domain)}
+          onClick={() => onSelect(entry)}
           className="
             w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md
             hover:bg-white/[0.03] transition-colors text-left group
@@ -40,9 +40,14 @@ export default function HistoryList({ entries, onSelect, onClear }: HistoryListP
               entry.compliant ? "bg-emerald-500" : "bg-red-500"
             }`}
           />
-          <span className="flex-1 text-sm text-zinc-400 truncate group-hover:text-zinc-200 transition-colors">
-            {entry.domain}
-          </span>
+          <div className="flex-1 min-w-0">
+            <span className="block text-sm text-zinc-400 truncate group-hover:text-zinc-200 transition-colors">
+              {entry.domain}
+            </span>
+            <span className="block text-[11px] text-zinc-700 mt-0.5">
+              {entry.standards.length} standard{entry.standards.length !== 1 ? "s" : ""} · {entry.pages_crawled} pages
+            </span>
+          </div>
           <span className="text-[11px] text-zinc-700 shrink-0">
             {timeAgo(entry.checkedAt)}
           </span>
