@@ -1,4 +1,6 @@
 FROM node:20-alpine AS builder
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

@@ -188,6 +188,25 @@ docker compose up --build
 docker compose up --build -d
 ```
 
+### Production Deployment
+
+The frontend runs in the **browser**, so it must reach the backend via a URL the user's browser can access (not Docker internal hostnames).
+
+1. **Set `NEXT_PUBLIC_API_URL`** to your backend's public URL:
+   ```bash
+   # Example: backend at https://api.yourdomain.com
+   NEXT_PUBLIC_API_URL=https://api.yourdomain.com
+   ```
+   For local Docker: `http://localhost:8000` (default). For production: your backend's HTTPS URL.
+
+2. **Set `CORS_ORIGINS`** on the backend to allow your frontend origin:
+   ```bash
+   # Example: frontend at https://app.yourdomain.com
+   CORS_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
+   ```
+
+3. **Rebuild the frontend** after changing `NEXT_PUBLIC_API_URL` (it's baked in at build time).
+
 ## How It Works
 
 1. **Seed Generation** — Given a domain like `stripe.com`, the agent generates URLs targeting common compliance pages (`/security`, `/trust`, `/privacy`, `/legal`, `/compliance`, etc.).

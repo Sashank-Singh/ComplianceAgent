@@ -3,7 +3,11 @@
 import { useCallback, useRef, useState } from "react";
 import { CheckResponse, CheckStage, CrawlUrl } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin /api when unset (Vercel). External URL when NEXT_PUBLIC_API_URL is set.
+const getStreamUrl = (params: URLSearchParams) =>
+  process.env.NEXT_PUBLIC_API_URL
+    ? `${process.env.NEXT_PUBLIC_API_URL}/check/stream?${params}`
+    : `/api/check/stream?${params}`;
 
 export function useComplianceCheck() {
   const [stage, setStage] = useState<CheckStage>("idle");
@@ -38,10 +42,9 @@ export function useComplianceCheck() {
       setStage("generating_seeds");
 
       const params = new URLSearchParams({ domain, max_depth: String(maxDepth) });
-      const url = `${API_BASE}/check/stream?${params}`;
 
       try {
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(getStreamUrl(params), { signal: controller.signal });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
