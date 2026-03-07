@@ -43,3 +43,9 @@ coverage.xml
 # Playwright
 playwright-report/
 test-results/
+
+# Node.js / Frontend
+node_modules/
+.next/
+out/
+npm-debug.log*

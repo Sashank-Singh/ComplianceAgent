@@ -6,12 +6,10 @@ import os
 from redis import Redis
 from rq import Queue
 
-from aggregator.combine import aggregate
 from cache.store import get_cached_result, set_cached_result
-from classifier.classify import classify_chunk
+from classifier.classify import classify_document
 from crawler.bfs import bfs_crawl
 from crawler.seed import generate_seeds, normalize_domain
-from extractor.chunker import chunk_text
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +44,14 @@ def check_domain(domain: str, max_depth: int = 2, use_spa: bool = False) -> dict
     seeds = generate_seeds(domain)
     pages = bfs_crawl(seeds, domain, max_depth=max_depth, use_spa=use_spa)
 
-    all_chunk_results: list[dict] = []
-
+    # Combine all page text into one document (with section headers)
+    doc_parts = []
     for url, text in pages:
-        chunks = chunk_text(text)
-        for chunk in chunks:
-            result = classify_chunk(chunk)
-            all_chunk_results.append(result)
+        doc_parts.append(f"--- {url} ---\n\n{text}")
+    full_text = "\n\n".join(doc_parts)
 
-    final = aggregate(all_chunk_results)
+    # Single API call (or 2 if document is very large)
+    final = classify_document(full_text)
     final["domain"] = domain
     final["pages_crawled"] = len(pages)
     final["source_urls"] = [url for url, _ in pages]

@@ -48,8 +48,8 @@ def _is_relevant_link(url: str, depth: int) -> bool:
 def bfs_crawl(
     seed_urls: list[str],
     domain: str,
-    max_depth: int = 2,
-    max_pages: int = 30,
+    max_depth: int = 1,
+    max_pages: int = 12,
     use_spa: bool = False,
 ) -> list[tuple[str, str]]:
     """Crawl starting from *seed_urls*, expanding links up to *max_depth*.
